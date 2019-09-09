@@ -103,17 +103,10 @@ RCT_EXPORT_METHOD(start:(NSString *)path
     if(!quality) quality = @(AVAudioQualityMax);
     [settings setObject:quality forKey:AVEncoderAudioQualityKey];
     
-    
-    
     NSError* err = nil;
 
     AVAudioSession* session = [AVAudioSession sharedInstance];
-    [session setCategory:AVAudioSessionCategoryRecord error:&err];
-    
-    if (err) {
-        reject(@"init_session_error", [[err userInfo] description], err);
-        return;
-    }
+    [session setCategory:AVAudioSessionCategoryRecord error:nil];
     
     NSURL *url = [NSURL fileURLWithPath:path];
 
@@ -121,22 +114,19 @@ RCT_EXPORT_METHOD(start:(NSString *)path
     _recorder.delegate = self;
 
     if (err) {
+        _recorder = nil;
         reject(@"init_recorder_error", [[err userInfo] description], err);
         return;
     }
     
     [_recorder prepareToRecord];
+    [session setActive:YES error:nil];
     [_recorder record];
-    [session setActive:YES error:&err];
-    
-    if (err) {
-        reject(@"session_set_active_error", [[err userInfo] description], err);
-        return;
-    }
     
     if(_recorder.isRecording) {
         resolve([NSNull null]);
     } else {
+        _recorder = nil;
         reject(@"recording_failed", [@"Cannot record audio at path: " stringByAppendingString:[_recorder url].absoluteString], nil);
     }
     
@@ -149,32 +139,23 @@ RCT_EXPORT_METHOD(stop:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejec
         return;
     }
     
-    NSError* err = nil;
-    
     [_recorder stop];
     
     // prepare the response
     NSString* url = [_recorder url].absoluteString;
     url = [url substringFromIndex:NSMaxRange([url rangeOfString:@"://"])]; // trim the scheme (file://)
-    AVAudioPlayer* player = [[AVAudioPlayer alloc] initWithContentsOfURL:[_recorder url] error:nil];
-    NSDictionary* response = @{@"duration": @(player.duration * 1000), @"path": url};
+
+    AVURLAsset* audioAsset = [AVURLAsset URLAssetWithURL:[_recorder url] options:nil];
+    CMTime audioDuration = audioAsset.duration;
+    float audioDurationSeconds = CMTimeGetSeconds(audioDuration);
+
+    NSDictionary* response = @{@"duration": @(audioDurationSeconds * 1000), @"path": url};
     
     _recorder = nil; // release it
-    
+
     AVAudioSession* session = [AVAudioSession sharedInstance];
-    [session setActive:NO error:&err];
-    
-    if (err) {
-        reject(@"session_set_active_error", [[err userInfo] description], err);
-        return;
-    }
-    
-    [session setCategory:AVAudioSessionCategoryPlayback error:&err];
-    
-    if (err) {
-        reject(@"reset_session_error", [[err userInfo] description], err);
-        return;
-    }
+    [session setActive:NO error:nil];
+    [session setCategory:AVAudioSessionCategoryPlayback error:nil];
     
     resolve(response);
 
