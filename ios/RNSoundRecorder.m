@@ -144,21 +144,23 @@ RCT_EXPORT_METHOD(stop:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejec
     // prepare the response
     NSString* url = [_recorder url].absoluteString;
     url = [url substringFromIndex:NSMaxRange([url rangeOfString:@"://"])]; // trim the scheme (file://)
-
+    
     AVURLAsset* audioAsset = [AVURLAsset URLAssetWithURL:[_recorder url] options:nil];
     CMTime audioDuration = audioAsset.duration;
     float audioDurationSeconds = CMTimeGetSeconds(audioDuration);
-
+    
     NSDictionary* response = @{@"duration": @(audioDurationSeconds * 1000), @"path": url};
     
     _recorder = nil; // release it
-
-    AVAudioSession* session = [AVAudioSession sharedInstance];
-    [session setActive:NO error:nil];
-    [session setCategory:AVAudioSessionCategoryPlayback error:nil];
     
     resolve(response);
-
+    
+    dispatch_queue_t myQueue = dispatch_queue_create("com.senti.app", nil);
+    dispatch_async(myQueue, ^{
+        AVAudioSession* session = [AVAudioSession sharedInstance];
+        [session setActive:NO error:nil];
+        [session setCategory:AVAudioSessionCategoryPlayback error:nil];
+    });
 }
 
 RCT_EXPORT_METHOD(pause:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
