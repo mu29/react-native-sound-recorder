@@ -20,7 +20,7 @@ RCT_EXPORT_MODULE()
         @"PATH_CACHE": [NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES) firstObject],
         @"PATH_DOCUMENT": [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject],
         @"PATH_LIBRARY": [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) firstObject],
-        
+    
         @"FORMAT_LinearPCM": @(kAudioFormatLinearPCM),
         @"FORMAT_AC3": @(kAudioFormatAC3),
         @"FORMAT_60958AC3": @(kAudioFormat60958AC3),
@@ -58,13 +58,13 @@ RCT_EXPORT_MODULE()
         @"FORMAT_AMR_WB": @(kAudioFormatAMR_WB),
         @"FORMAT_EnhancedAC3": @(kAudioFormatEnhancedAC3),
         @"FORMAT_MPEG4AAC_ELD_V2": @(kAudioFormatMPEG4AAC_ELD_V2),
-        
+    
         @"QUALITY_MAX": @(AVAudioQualityMax),
         @"QUALITY_MIN": @(AVAudioQualityMin),
         @"QUALITY_LOW": @(AVAudioQualityLow),
         @"QUALITY_MEDIUM": @(AVAudioQualityMedium),
         @"QUALITY_HIGH": @(AVAudioQualityHigh)
-        
+    
     };
 }
 
@@ -78,147 +78,128 @@ RCT_EXPORT_METHOD(start:(NSString *)path
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    if(_recorder && _recorder.isRecording) {
+    if (_recorder && _recorder.isRecording) {
         reject(@"already_recording", @"Already Recording", nil);
         return;
     }
-    
+
     NSMutableDictionary* settings = [[NSMutableDictionary alloc] init];
-    
+
     // https://developer.apple.com/documentation/coreaudio/core_audio_data_types/1572096-audio_data_format_identifiers
     NSNumber* format = [options objectForKey:@"format"];
-    if(!format) format = @(kAudioFormatMPEG4AAC);
+    if (!format) format = @(kAudioFormatMPEG4AAC);
     [settings setObject:format forKey:AVFormatIDKey];
-    
+
     NSNumber* channels = [options objectForKey:@"channels"];
-    if(!channels) channels = @1;
+    if (!channels) channels = @1;
     [settings setObject:channels forKey:AVNumberOfChannelsKey];
-    
+
     NSNumber* bitRate = [options objectForKey:@"bitRate"];
-    if(bitRate) [settings setObject:bitRate forKey:AVEncoderBitRateKey];
-    
+    if (bitRate) [settings setObject:bitRate forKey:AVEncoderBitRateKey];
+
     NSNumber* sampleRate = [options objectForKey:@"sampleRate"];
-    if(!sampleRate) sampleRate = @16000;
+    if (!sampleRate) sampleRate = @16000;
     [settings setObject:sampleRate forKey:AVSampleRateKey];
-    
+
     NSNumber* quality = [options objectForKey:@"quality"];
-    if(!quality) quality = @(AVAudioQualityMax);
+    if (!quality) quality = @(AVAudioQualityMax);
     [settings setObject:quality forKey:AVEncoderAudioQualityKey];
-    
-    
-    
+
+
+
     NSError* err = nil;
 
     AVAudioSession* session = [AVAudioSession sharedInstance];
-    [session setCategory:AVAudioSessionCategoryRecord error:&err];
-    
-    if (err) {
-        reject(@"init_session_error", [[err userInfo] description], err);
-        return;
-    }
-    
+    [session setCategory:AVAudioSessionCategoryRecord error:nil];
+
     NSURL *url = [NSURL fileURLWithPath:path];
 
     _recorder = [[AVAudioRecorder alloc] initWithURL:url settings:settings error:&err];
     _recorder.delegate = self;
 
     if (err) {
+        _recorder = nil;
         reject(@"init_recorder_error", [[err userInfo] description], err);
         return;
     }
-    
+
     [_recorder prepareToRecord];
     [_recorder record];
-    [session setActive:YES error:&err];
-    
-    if (err) {
-        reject(@"session_set_active_error", [[err userInfo] description], err);
-        return;
-    }
-    
-    if(_recorder.isRecording) {
+    [session setActive:YES error:nil];
+
+    if (_recorder.isRecording) {
         resolve([NSNull null]);
     } else {
         reject(@"recording_failed", [@"Cannot record audio at path: " stringByAppendingString:[_recorder url].absoluteString], nil);
+        _recorder = nil;
     }
-    
+
 }
 
 RCT_EXPORT_METHOD(stop:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 {
-    if(!_recorder) {
+    if (!_recorder) {
         reject(@"not_recording", @"Not Recording", nil);
         return;
     }
-    
+
     _resolveStop = resolve;
     _rejectStop = reject;
     [_recorder stop];
-
 }
 
 - (void)audioRecorderDidFinishRecording:(AVAudioRecorder *)recorder successfully:(BOOL)flag
 {
-    
-    __block NSError* err = nil;
-    
-    // prepare the response
     NSString* url = [_recorder url].absoluteString;
-    url = [url substringFromIndex:NSMaxRange([url rangeOfString:@"://"])]; // trim the scheme (file://)
-    AVAudioPlayer* player = [[AVAudioPlayer alloc] initWithContentsOfURL:[_recorder url] error:nil];
-    NSDictionary* response = @{@"duration": @(player.duration * 1000), @"path": url};
-    
-    // deactivate the audio session
-    AVAudioSession* session = [AVAudioSession sharedInstance];
-    [session setActive:NO error:&err];
-    
-    if (err) {
-        _rejectStop(@"session_set_active_error", [[err userInfo] description], err);
-        return;
-    }
-    
-    [session setCategory:AVAudioSessionCategoryPlayback error:&err];
-    
-    if (err) {
-        _rejectStop(@"reset_session_error", [[err userInfo] description], err);
-        return;
-    }
-    
+    url = [url substringFromIndex:NSMaxRange([url rangeOfString:@"://"])];
+
+    AVURLAsset* audioAsset = [AVURLAsset URLAssetWithURL:[_recorder url] options:nil];
+    CMTime audioDuration = audioAsset.duration;
+    float audioDurationSeconds = CMTimeGetSeconds(audioDuration);
+    NSDictionary* response = @{@"duration": @(audioDurationSeconds * 1000), @"path": url};
+
     _resolveStop(response);
-    
+
     // release the recorder promise resolver
     _recorder = nil;
     _resolveStop = nil;
     _rejectStop = nil;
-    
+
+    dispatch_queue_t myQueue = dispatch_queue_create("com.signal.app", nil);
+    dispatch_async(myQueue, ^{
+        // deactivate the audio session
+        AVAudioSession* session = [AVAudioSession sharedInstance];
+        [session setActive:NO error:nil];
+        [session setCategory:AVAudioSessionCategoryPlayback error:nil];
+    });
 }
 
 RCT_EXPORT_METHOD(pause:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 {
-    if(!_recorder || !_recorder.isRecording) {
+    if (!_recorder || !_recorder.isRecording) {
         reject(@"not_recording", @"Not Recording", nil);
         return;
     }
-    
+
     [_recorder pause];
-    
+
     resolve([NSNull null]);
 }
 
 RCT_EXPORT_METHOD(resume:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject)
 {
-    if(!_recorder) {
+    if (!_recorder) {
         reject(@"not_recording", @"Not yet started recording", nil);
         return;
     }
-    
-    if(_recorder.isRecording) {
+
+    if (_recorder.isRecording) {
         reject(@"already_recording", @"Already Recording", nil);
         return;
     }
-    
+
     [_recorder record];
-    
+
     resolve([NSNull null]);
 }
 
