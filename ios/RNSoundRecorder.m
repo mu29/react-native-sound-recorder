@@ -4,8 +4,6 @@
 
 @implementation RNSoundRecorder {
     AVAudioRecorder* _recorder;
-    RCTPromiseResolveBlock _resolveStop;
-    RCTPromiseRejectBlock _rejectStop;
 }
 
 - (dispatch_queue_t)methodQueue
@@ -143,13 +141,8 @@ RCT_EXPORT_METHOD(stop:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejec
         return;
     }
 
-    _resolveStop = resolve;
-    _rejectStop = reject;
     [_recorder stop];
-}
 
-- (void)audioRecorderDidFinishRecording:(AVAudioRecorder *)recorder successfully:(BOOL)flag
-{
     NSString* url = [_recorder url].absoluteString;
     url = [url substringFromIndex:NSMaxRange([url rangeOfString:@"://"])];
 
@@ -158,12 +151,8 @@ RCT_EXPORT_METHOD(stop:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejec
     float audioDurationSeconds = CMTimeGetSeconds(audioDuration);
     NSDictionary* response = @{@"duration": @(audioDurationSeconds * 1000), @"path": url};
 
-    _resolveStop(response);
-
-    // release the recorder promise resolver
+    // release the recorder
     _recorder = nil;
-    _resolveStop = nil;
-    _rejectStop = nil;
 
     dispatch_queue_t myQueue = dispatch_queue_create("com.signal.app", nil);
     dispatch_async(myQueue, ^{
@@ -171,6 +160,7 @@ RCT_EXPORT_METHOD(stop:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejec
         AVAudioSession* session = [AVAudioSession sharedInstance];
         [session setActive:NO error:nil];
         [session setCategory:AVAudioSessionCategoryPlayback error:nil];
+        resolve(response);
     });
 }
 
